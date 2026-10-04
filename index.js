@@ -14,7 +14,7 @@ const API_HOST   = IS_SANDBOX ? 'https://api.sandbox.ebay.com' : 'https://api.eb
 const TOKEN_URL  = `${API_HOST}/identity/v1/oauth2/token`;
 const SEARCH_URL = `${API_HOST}/buy/browse/v1/item_summary/search`;
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 60 * 1000;
 const FOOTER_TEXT = IS_SANDBOX ? 'eBay SANDBOX (test data)' : 'eBay UK';
 
 // Mirrors your eBay.co.uk links.
