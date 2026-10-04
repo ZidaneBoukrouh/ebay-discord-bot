@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
+const { buildBrowseSearchParams, isRelevantTitle } = require('./search-utils');
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const TOKEN         = process.env.DISCORD_TOKEN;
@@ -16,18 +17,27 @@ const SEARCH_URL = `${API_HOST}/buy/browse/v1/item_summary/search`;
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 const FOOTER_TEXT = IS_SANDBOX ? 'eBay SANDBOX (test data)' : 'eBay UK';
 
-// maxPrice in GBP; condition: 'USED' | 'NEW' | undefined; binOnly: Buy It Now only
+// Mirrors your eBay.co.uk links.
+//   categoryId   <- _sacat (omit when _sacat=0)
+//   maxPrice     <- _udhi
+//   conditionId  <- LH_ItemCondition (3000 = Used, 1000 = New)
+//   ukOnly       <- LH_PrefLoc=1
+//   bestOffer    <- LH_BO=1 (Best Offer enabled)
+//   freeShipping <- LH_FS=1
+// Part categories use eBay UK leaf IDs; desktop searches remain uncategorized.
 const SEARCHES = [
-  { label: 'Graphics Card',            q: 'graphics card',          maxPrice: 300, condition: 'USED' },
-  { label: 'GTX',                      q: 'GTX',                    maxPrice: 100, condition: 'USED' },
-  { label: 'Power Supply',             q: 'power supply PSU',       maxPrice: 30,  binOnly: true },
-  { label: 'Motherboard + CPU Bundle', q: 'motherboard cpu bundle', maxPrice: 100 },
-  { label: 'Motherboard',              q: 'motherboard',            maxPrice: 40,  condition: 'USED' },
-  { label: 'Desktop PC',               q: 'desktop pc',             maxPrice: 105 },
-  { label: 'Desktop RAM',              q: 'desktop ram ddr4',       maxPrice: 40,  condition: 'USED' },
-  { label: 'CPU Processor',            q: 'cpu processor',          maxPrice: 40,  condition: 'USED', binOnly: true },
-  { label: 'Ryzen',                    q: 'ryzen',                  maxPrice: 30,  condition: 'USED' },
-  { label: 'PC Case',                  q: 'pc case',                maxPrice: 50,  condition: 'NEW' },
+  { label: 'Graphics Card',            q: 'graphics card',          categoryId: '27386', titleRule: 'graphics-card', maxPrice: 300, conditionId: 3000, ukOnly: true },
+  { label: 'GTX',                      q: 'gtx',                    categoryId: '27386', titleRule: 'gtx',            maxPrice: 100, conditionId: 3000, ukOnly: true },
+  { label: 'Power Supply',             q: 'power supply',           categoryId: '42017', titleRule: 'power-supply',  maxPrice: 30, ukOnly: true, bestOffer: true },
+  { label: 'SSD',                      q: 'ssd',                    categoryId: '175669', titleRule: 'ssd',           maxPrice: 31,  ukOnly: true },
+  { label: 'Motherboard + CPU Bundle', q: 'motherboard cpu bundle', categoryId: '131511', titleRule: 'motherboard-cpu-bundle', maxPrice: 100, ukOnly: true },
+  { label: 'Motherboard',              q: 'motherboard',            categoryId: '1244', titleRule: 'motherboard',    maxPrice: 40,  conditionId: 3000, ukOnly: true },
+  { label: 'Desktop PC',               q: 'desktop pc',             titleRule: 'desktop-pc', maxPrice: 105 },
+  { label: 'Gaming PC',                q: 'gaming pc',              titleRule: 'gaming-pc', maxPrice: 600, ukOnly: true },
+  { label: 'Desktop RAM',              q: 'desktop ram',            categoryId: '170083', titleRule: 'desktop-ram',  maxPrice: 55, conditionId: 3000, ukOnly: true },
+  { label: 'CPU Processor',            q: 'cpu processor',          categoryId: '164', titleRule: 'cpu',            maxPrice: 100, conditionId: 3000, ukOnly: true, bestOffer: true },
+  { label: 'Ryzen',                    q: 'ryzen',                  categoryId: '164', titleRule: 'cpu',            maxPrice: 30,  conditionId: 3000, ukOnly: true },
+  { label: 'PC Case',                  q: 'pc case',                categoryId: '42014', titleRule: 'pc-case',      maxPrice: 50,  conditionId: 1000, ukOnly: true, freeShipping: true },
 ];
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -62,22 +72,21 @@ async function getToken() {
 
 // ─── SEARCH ──────────────────────────────────────────────────────────────────
 function buildFilter(s) {
-  // Sandbox data is sparse test data, so skip filters there
-  if (IS_SANDBOX) return '';
+  if (IS_SANDBOX) return ''; // sandbox data is sparse test data
   const f = [];
-  if (s.maxPrice) f.push(`price:[..${s.maxPrice}]`, 'priceCurrency:GBP');
-  if (s.condition) f.push(`conditions:{${s.condition}}`);
-  if (s.binOnly) f.push('buyingOptions:{FIXED_PRICE}');
-  f.push('itemLocationCountry:GB');
+  if (s.maxPrice)     f.push(`price:[..${s.maxPrice}]`, 'priceCurrency:GBP');
+  if (s.conditionId)  f.push(`conditionIds:{${s.conditionId}}`);
+  if (s.ukOnly)       f.push('itemLocationCountry:GB');
+  if (s.bestOffer)    f.push('buyingOptions:{BEST_OFFER}');
+  if (s.freeShipping) f.push('maxDeliveryCost:0', 'deliveryCountry:GB');
   return f.join(',');
 }
 
 async function searchEbay(s) {
   try {
     const token = await getToken();
-    const params = { q: s.q, sort: 'newlyListed', limit: 30 };
     const filter = buildFilter(s);
-    if (filter) params.filter = filter;
+    const params = buildBrowseSearchParams(s, IS_SANDBOX, filter);
 
     const response = await axios.get(SEARCH_URL, {
       params,
@@ -97,13 +106,13 @@ async function searchEbay(s) {
       link:      String(i.itemWebUrl),
       img:       i.image && i.image.imageUrl ? String(i.image.imageUrl) : null,
       condition: i.condition ? String(i.condition) : 'N/A',
-    }));
+    })).filter(item => isRelevantTitle(s.titleRule, item.title));
   } catch (err) {
     const detail = err.response?.data
         ? JSON.stringify(err.response.data)
         : err.message;
     console.error(`❌ "${s.label}" failed (${err.response?.status || 'no status'}): ${detail}`);
-    return null; // null = failed, so we never treat failures as "no listings"
+    return null; // null = failed, never treated as "no listings"
   }
 }
 
