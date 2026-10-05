@@ -33,8 +33,8 @@ const SEARCHES = [
   { label: 'Motherboard + CPU Bundle', q: 'motherboard cpu bundle', categoryId: '131511', titleRule: 'motherboard-cpu-bundle', maxPrice: 100, ukOnly: true },
   { label: 'Motherboard',              q: 'motherboard',            categoryId: '1244', titleRule: 'motherboard',    maxPrice: 40,  conditionId: 3000, ukOnly: true },
   { label: 'Desktop PC',               q: 'desktop pc',             titleRule: 'desktop-pc', maxPrice: 105 },
-  { label: 'Gaming PC',                q: 'gaming pc',              titleRule: 'gaming-pc', maxPrice: 600, ukOnly: true },
-  { label: 'Desktop RAM',              q: 'desktop ram',            categoryId: '170083', titleRule: 'desktop-ram',  maxPrice: 55, conditionId: 3000, ukOnly: true },
+  { label: 'Gaming PC',                q: 'gaming pc',              titleRule: 'gaming-pc', blockWords: ['CONTROLLER', 'HEADSET', 'MICROPHONE', 'ADAPTER', 'PS4', 'PS5', 'XBOX', 'VINTAGE', 'CD', 'DVD', 'LAPTOP', 'REPAIR', 'TOOL', 'SWITCH', 'TV', 'MONITOR', 'REMOTE', 'STREAMING', 'RECORDING'], maxPrice: 600, ukOnly: true },
+  { label: 'Desktop RAM',              q: 'desktop ram',            categoryId: '170083', titleRule: 'desktop-ram', blockWords: ['SERVER'], maxPrice: 55, conditionId: 3000, ukOnly: true },
   { label: 'CPU Processor',            q: 'cpu processor',          categoryId: '164', titleRule: 'cpu',            maxPrice: 100, conditionId: 3000, ukOnly: true, bestOffer: true },
   { label: 'Ryzen',                    q: 'ryzen',                  categoryId: '164', titleRule: 'cpu',            maxPrice: 30,  conditionId: 3000, ukOnly: true },
   { label: 'PC Case',                  q: 'pc case',                categoryId: '42014', titleRule: 'pc-case',      maxPrice: 50,  conditionId: 1000, ukOnly: true, freeShipping: true },
@@ -106,7 +106,7 @@ async function searchEbay(s) {
       link:      String(i.itemWebUrl),
       img:       i.image && i.image.imageUrl ? String(i.image.imageUrl) : null,
       condition: i.condition ? String(i.condition) : 'N/A',
-    })).filter(item => isRelevantTitle(s.titleRule, item.title));
+    })).filter(item => isRelevantTitle(s.titleRule, item.title, s.blockWords));
   } catch (err) {
     const detail = err.response?.data
         ? JSON.stringify(err.response.data)
