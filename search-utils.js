@@ -19,11 +19,10 @@ const TITLE_RULES = {
     /\b(?:motherboard|mainboard)\b/i.test(title) && /\b(?:cpu|processor|ryzen|athlon|xeon|core\s+i[3579])\b/i.test(title),
   motherboard: title => /\b(?:motherboard|mainboard)\b/i.test(title),
   'desktop-pc': title =>
-    /\b(?:desktop|tower|mini\s+pc|all[\s-]?in[\s-]?one|workstation|prodesk|thinkcentre|optiplex|elitedesk|ideacentre|nuc)\b/i.test(title) &&
+    /\b(?:desktop\s+(?:pc|computer)|(?:pc|computer)\s+desktop|tower\s+(?:pc|computer)|mini\s+pc|all[\s-]?in[\s-]?one\s+(?:pc|computer)|(?:prodesk|thinkcentre|optiplex|elitedesk|ideacentre|nuc))\b/i.test(title) &&
     !/\b(?:pc|computer)\s+case\b/i.test(title),
   'gaming-pc': title =>
-    /\b(?:gaming|gamer)\b/i.test(title) &&
-    /\b(?:pc|computer|desktop|tower|rig)\b/i.test(title) &&
+    /\b(?:gaming|gamer)\s+(?:desktop\s+)?(?:pc|computer|desktop|tower|rig)\b/i.test(title) &&
     !/\b(?:pc|computer)\s+case\b/i.test(title),
   'desktop-ram': title =>
     /\b(?:ram|memory|ddr[2345]|dimm)\b/i.test(title) && !/\b(?:so[\s-]?dimm|laptop)\b/i.test(title),

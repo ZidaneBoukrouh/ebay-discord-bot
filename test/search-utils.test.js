@@ -10,8 +10,14 @@ test('sends category_ids in production but omits it in sandbox', () => {
 
 test('filters unrelated desktop and gaming search results', () => {
   assert.equal(isRelevantTitle('desktop-pc', 'Christmas tree desktop ornament'), false);
+  assert.equal(isRelevantTitle('desktop-pc', 'Flower Desktop Vanity Mirror Pink Round Dressing Mirror'), false);
+  assert.equal(isRelevantTitle('desktop-pc', 'Desktop PC Core i3 16GB RAM 256GB SSD'), true);
+  assert.equal(isRelevantTitle('desktop-pc', 'Dell OptiPlex 3040 Micro PC 16GB RAM'), true);
   assert.equal(isRelevantTitle('gaming-pc', 'Steam key for PC game - Football Manager'), false);
+  assert.equal(isRelevantTitle('gaming-pc', 'Turtle Beach Recon 70 Gaming Headset for PC'), false);
+  assert.equal(isRelevantTitle('gaming-pc', 'Ergonomic Gaming Mouse Mat with Wrist Support'), false);
   assert.equal(isRelevantTitle('gaming-pc', 'Gaming PC case only, ATX chassis'), false);
+  assert.equal(isRelevantTitle('gaming-pc', 'Gaming Desktop PC Ryzen 5 RTX 3060'), true);
   assert.equal(isRelevantTitle('gaming-pc', 'Gaming PC Ryzen 5 RTX 3060'), true);
 });
 
