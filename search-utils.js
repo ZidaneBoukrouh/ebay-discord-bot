@@ -73,6 +73,13 @@ function itemPriceValue(summary) {
   return p ? parseFloat(p.value) : NaN;
 }
 
+// Current bid (the starting bid until someone bids) for auction listings.
+// Auction + Buy It Now listings carry both: `price` is the BIN price.
+function itemBidValue(summary) {
+  const p = summary?.currentBidPrice;
+  return p ? parseFloat(p.value) : NaN;
+}
+
 // Cheapest postage among a Browse API item summary's shippingOptions.
 // Returns 0 for free postage, or null when no option states a cost
 // (e.g. collection only, or calculated postage the API didn't price).
@@ -99,5 +106,5 @@ function quickBuyUrl(legacyItemId, itemId) {
 
 module.exports = {
   buildBrowseSearchParams, isRelevantTitle, matchSubSearch,
-  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue,
+  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue, itemBidValue,
 };

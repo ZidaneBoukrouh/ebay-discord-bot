@@ -117,6 +117,15 @@ test('reads auction price from currentBidPrice when price is missing', () => {
   assert.ok(Number.isNaN(itemPriceValue({})));
 });
 
+const { itemBidValue } = require('../search-utils');
+
+test('auction + Buy It Now: bid comes from currentBidPrice, price is the BIN price', () => {
+  const summary = { price: { value: '52.69' }, currentBidPrice: { value: '10.79' } };
+  assert.equal(itemBidValue(summary), 10.79);
+  assert.equal(itemPriceValue(summary), 52.69);
+  assert.ok(Number.isNaN(itemBidValue({ price: { value: '5' } })));
+});
+
 test('auction listings match sub-searches like fixed-price ones', () => {
   const search = { subSearches: [{ label: 'Graphics Card', categoryId: '27386', titleRule: 'graphics-card', maxPrice: 300, conditionId: 3000 }] };
   const auction = {

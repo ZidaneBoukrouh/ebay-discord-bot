@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const axios = require('axios');
 const {
   buildBrowseSearchParams, matchSubSearch,
-  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue,
+  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue, itemBidValue,
 } = require('./search-utils');
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -162,7 +162,9 @@ async function searchEbay(s) {
       price:        formatTotalPrice(priceValue, shippingCost),
       priceValue,
       shippingCost,
+      bidPrice:     formatTotalPrice(itemBidValue(i), shippingCost),
       isAuction:    buyingOptions.includes('AUCTION'),
+      hasBuyItNow:  buyingOptions.includes('FIXED_PRICE'),
       bidCount:     i.bidCount ?? 0,
       endDate:      i.itemEndDate || null,
       // Checkout link only works for Buy It Now listings.
@@ -231,9 +233,14 @@ async function pollSearch(s) {
     fresh.forEach(i => seenIds.add(i.id));
 
     for (const item of fresh.slice(0, 20)) { // max 20 alerts per API call per cycle
-      const fields = item.isAuction
-        ? [{ name: 'Current bid', value: `${item.price} (${item.bidCount} bid${item.bidCount === 1 ? '' : 's'})`, inline: true }]
-        : [{ name: 'Price', value: String(item.price), inline: true }];
+      const fields = [];
+      if (item.isAuction) {
+        const bid = item.bidPrice !== 'N/A' ? item.bidPrice : item.price;
+        fields.push({ name: 'Current bid', value: `${bid} (${item.bidCount} bid${item.bidCount === 1 ? '' : 's'})`, inline: true });
+        if (item.hasBuyItNow) fields.push({ name: 'Buy It Now', value: String(item.price), inline: true });
+      } else {
+        fields.push({ name: 'Price', value: String(item.price), inline: true });
+      }
       fields.push(
         { name: 'Condition', value: String(item.condition), inline: true },
         { name: 'Search',    value: String(item.match.label), inline: true },
