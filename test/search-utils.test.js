@@ -108,3 +108,20 @@ test('builds the quick buy checkout link from the item id', () => {
   assert.equal(quickBuyUrl(undefined, 'v1|206685590078|0'), url);
   assert.equal(quickBuyUrl(undefined, 'garbage'), null);
 });
+
+const { itemPriceValue } = require('../search-utils');
+
+test('reads auction price from currentBidPrice when price is missing', () => {
+  assert.equal(itemPriceValue({ price: { value: '45.00' } }), 45);
+  assert.equal(itemPriceValue({ currentBidPrice: { value: '21.50' } }), 21.5);
+  assert.ok(Number.isNaN(itemPriceValue({})));
+});
+
+test('auction listings match sub-searches like fixed-price ones', () => {
+  const search = { subSearches: [{ label: 'Graphics Card', categoryId: '27386', titleRule: 'graphics-card', maxPrice: 300, conditionId: 3000 }] };
+  const auction = {
+    title: 'SAPPHIRE Pulse Radeon RX Vega 56 Gaming 8gb Graphics Card', priceValue: 21.5, conditionId: '3000',
+    buyingOptions: ['AUCTION'], categoryIds: ['27386', '58058'], country: 'GB',
+  };
+  assert.equal(matchSubSearch(search, auction).label, 'Graphics Card');
+});

@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const axios = require('axios');
 const {
   buildBrowseSearchParams, matchSubSearch,
-  cheapestShippingCost, formatTotalPrice, quickBuyUrl,
+  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue,
 } = require('./search-utils');
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
@@ -126,7 +126,9 @@ function buildFilter(s) {
   if (s.maxPrice)     f.push(`price:[..${s.maxPrice}]`, 'priceCurrency:GBP');
   if (s.conditionId)  f.push(`conditionIds:{${s.conditionId}}`);
   if (s.ukOnly)       f.push('itemLocationCountry:GB');
-  if (s.bestOffer)    f.push('buyingOptions:{BEST_OFFER}');
+  // Without a buyingOptions filter eBay returns fixed-price listings only,
+  // so auctions must be requested explicitly.
+  f.push(s.bestOffer ? 'buyingOptions:{BEST_OFFER}' : 'buyingOptions:{FIXED_PRICE|AUCTION|BEST_OFFER}');
   if (s.freeShipping) f.push('maxDeliveryCost:0', 'deliveryCountry:GB');
   return f.join(',');
 }
@@ -151,20 +153,25 @@ async function searchEbay(s) {
     const summaries = response.data.itemSummaries || [];
 
     const items = summaries.map(i => {
-      const priceValue   = i.price ? parseFloat(i.price.value) : NaN;
-      const shippingCost = cheapestShippingCost(i.shippingOptions);
+      const priceValue    = itemPriceValue(i);
+      const shippingCost  = cheapestShippingCost(i.shippingOptions);
+      const buyingOptions = i.buyingOptions || [];
       return {
       id:           String(i.itemId),
       title:        String(i.title),
       price:        formatTotalPrice(priceValue, shippingCost),
       priceValue,
       shippingCost,
-      quickBuy:     quickBuyUrl(i.legacyItemId, i.itemId),
+      isAuction:    buyingOptions.includes('AUCTION'),
+      bidCount:     i.bidCount ?? 0,
+      endDate:      i.itemEndDate || null,
+      // Checkout link only works for Buy It Now listings.
+      quickBuy:     buyingOptions.includes('FIXED_PRICE') ? quickBuyUrl(i.legacyItemId, i.itemId) : null,
       link:         String(i.itemWebUrl),
       img:          i.image && i.image.imageUrl ? String(i.image.imageUrl) : null,
       condition:    i.condition ? String(i.condition) : 'N/A',
       conditionId:  i.conditionId ? String(i.conditionId) : null,
-      buyingOptions: i.buyingOptions || [],
+      buyingOptions,
       categoryIds:  (i.categories || []).map(c => String(c.categoryId)),
       country:      i.itemLocation?.country || null,
       };
@@ -224,15 +231,22 @@ async function pollSearch(s) {
     fresh.forEach(i => seenIds.add(i.id));
 
     for (const item of fresh.slice(0, 20)) { // max 20 alerts per API call per cycle
+      const fields = item.isAuction
+        ? [{ name: 'Current bid', value: `${item.price} (${item.bidCount} bid${item.bidCount === 1 ? '' : 's'})`, inline: true }]
+        : [{ name: 'Price', value: String(item.price), inline: true }];
+      fields.push(
+        { name: 'Condition', value: String(item.condition), inline: true },
+        { name: 'Search',    value: String(item.match.label), inline: true },
+      );
+      const endMs = item.endDate ? Date.parse(item.endDate) : NaN;
+      if (item.isAuction && Number.isFinite(endMs)) {
+        fields.push({ name: 'Ends', value: `<t:${Math.floor(endMs / 1000)}:R>`, inline: true });
+      }
       const embed = new EmbedBuilder()
           .setTitle(item.title.slice(0, 256))
           .setURL(item.link)
           .setColor(0xe53238)
-          .addFields([
-            { name: 'Price',     value: String(item.price),     inline: true },
-            { name: 'Condition', value: String(item.condition), inline: true },
-            { name: 'Search',    value: String(item.match.label), inline: true },
-          ])
+          .addFields(fields)
           .setFooter({ text: FOOTER_TEXT })
           .setTimestamp();
       if (item.img) embed.setThumbnail(item.img);

@@ -66,6 +66,13 @@ function matchSubSearch(search, item) {
   return (search.subSearches || []).find(sub => passesSubSearch(sub, item)) || null;
 }
 
+// Item price from a Browse API summary. Auctions usually carry no `price`,
+// only `currentBidPrice` (the starting bid until someone bids).
+function itemPriceValue(summary) {
+  const p = summary?.price || summary?.currentBidPrice;
+  return p ? parseFloat(p.value) : NaN;
+}
+
 // Cheapest postage among a Browse API item summary's shippingOptions.
 // Returns 0 for free postage, or null when no option states a cost
 // (e.g. collection only, or calculated postage the API didn't price).
@@ -92,5 +99,5 @@ function quickBuyUrl(legacyItemId, itemId) {
 
 module.exports = {
   buildBrowseSearchParams, isRelevantTitle, matchSubSearch,
-  cheapestShippingCost, formatTotalPrice, quickBuyUrl,
+  cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue,
 };
