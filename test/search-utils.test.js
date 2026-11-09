@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildBrowseSearchParams, isRelevantTitle } = require('../search-utils');
+const { buildBrowseSearchParams, isRelevantTitle, matchSubSearch } = require('../search-utils');
 
 test('sends category_ids in production but omits it in sandbox', () => {
   const search = { q: 'pc case', categoryId: '42014' };
@@ -53,4 +53,58 @@ test('applies custom blocked words only to the selected search and as whole word
   assert.equal(isRelevantTitle('gaming-pc', 'Gaming PC CD-ROM drive included', ['CD']), false);
   assert.equal(isRelevantTitle('gaming-pc', 'Gaming PC with HDMI adapter', ['ADAPTER']), false);
   assert.equal(isRelevantTitle('gaming-pc', 'Gaming PC with upgraded RAM'), true);
+});
+
+test('combined search routes items to the first sub-search whose local filters pass', () => {
+  const search = {
+    subSearches: [
+      { label: 'Ryzen',         categoryId: '164', titleRule: 'ryzen', maxPrice: 30,  conditionId: 3000 },
+      { label: 'CPU Processor', categoryId: '164', titleRule: 'cpu',   maxPrice: 100, conditionId: 3000, bestOffer: true },
+      { label: 'SSD',           categoryId: '175669', titleRule: 'ssd', maxPrice: 31 },
+    ],
+  };
+  const item = over => ({
+    title: 'AMD Ryzen 5 3600 CPU', priceValue: 25, conditionId: '3000',
+    buyingOptions: ['FIXED_PRICE'], categoryIds: ['164', '175673', '58058'], country: 'GB', ...over,
+  });
+
+  assert.equal(matchSubSearch(search, item()).label, 'Ryzen');
+  // Over the Ryzen cap: only matches CPU Processor when Best Offer is available.
+  assert.equal(matchSubSearch(search, item({ priceValue: 60 })), null);
+  assert.equal(matchSubSearch(search, item({ priceValue: 60, buyingOptions: ['FIXED_PRICE', 'BEST_OFFER'] })).label, 'CPU Processor');
+  // Wrong condition or over every cap.
+  assert.equal(matchSubSearch(search, item({ conditionId: '1000' })), null);
+  assert.equal(matchSubSearch(search, item({ priceValue: 150, buyingOptions: ['BEST_OFFER'] })), null);
+  // Category is enforced locally: a laptop mentioning an SSD is not an SSD listing.
+  assert.equal(matchSubSearch(search, item({ title: 'Lenovo laptop 512GB SSD', categoryIds: ['177', '58058'] })), null);
+  assert.equal(matchSubSearch(search, item({ title: 'Samsung 870 EVO SSD 500GB', categoryIds: ['175669', '165', '58058'] })).label, 'SSD');
+  // Missing price never passes a price cap.
+  assert.equal(matchSubSearch(search, item({ priceValue: NaN })), null);
+});
+
+test('requests the maximum page size so combined searches do not miss listings', () => {
+  assert.equal(buildBrowseSearchParams({ q: 'x' }, false).limit, 200);
+});
+
+const { cheapestShippingCost, formatTotalPrice, quickBuyUrl } = require('../search-utils');
+
+test('picks the cheapest stated postage cost', () => {
+  assert.equal(cheapestShippingCost([{ shippingCost: { value: '4.99' } }, { shippingCost: { value: '2.50' } }]), 2.5);
+  assert.equal(cheapestShippingCost([{ shippingCost: { value: '0.00' } }]), 0);
+  assert.equal(cheapestShippingCost([{ shippingCostType: 'CALCULATED' }]), null);
+  assert.equal(cheapestShippingCost(undefined), null);
+});
+
+test('formats price with postage included', () => {
+  assert.equal(formatTotalPrice(45, 4.99), '£49.99');
+  assert.equal(formatTotalPrice(45, 0), '£45.00');
+  assert.equal(formatTotalPrice(45, null), '£45.00');
+  assert.equal(formatTotalPrice(NaN, 3), 'N/A');
+});
+
+test('builds the quick buy checkout link from the item id', () => {
+  const url = 'https://www.ebay.co.uk/bin/ctb?item=206685590078&quantity=1&fromPage=4429486&rev=0&fb=1';
+  assert.equal(quickBuyUrl('206685590078', 'v1|206685590078|0'), url);
+  assert.equal(quickBuyUrl(undefined, 'v1|206685590078|0'), url);
+  assert.equal(quickBuyUrl(undefined, 'garbage'), null);
 });
