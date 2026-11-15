@@ -1,8 +1,8 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const axios = require('axios');
 const {
-  buildBrowseSearchParams, matchSubSearch,
+  buildBrowseSearchParams, matchSubSearch, categoryChannelNames,
   cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue, itemBidValue,
 } = require('./search-utils');
 
@@ -65,14 +65,14 @@ const SEARCHES = [
     maxPrice: 300,
     ukOnly: true,
     subSearches: [
-      { label: 'Graphics Card',            categoryId: '27386',  titleRule: 'graphics-card',          maxPrice: 300, conditionId: 3000 },
-      { label: 'Power Supply',             categoryId: '42017',  titleRule: 'power-supply',           maxPrice: 30,  bestOffer: true },
-      { label: 'SSD',                      categoryId: '175669', titleRule: 'ssd',                    maxPrice: 31 },
-      { label: 'Motherboard + CPU Bundle', categoryId: '131511', titleRule: 'motherboard-cpu-bundle', maxPrice: 100 },
-      { label: 'Motherboard',              categoryId: '1244',   titleRule: 'motherboard',            maxPrice: 40,  conditionId: 3000 },
-      { label: 'Desktop RAM',              categoryId: '170083', titleRule: 'desktop-ram',            maxPrice: 55,  conditionId: 3000 },
-      { label: 'Ryzen',                    categoryId: '164',    titleRule: 'ryzen',                  maxPrice: 30,  conditionId: 3000 },
-      { label: 'CPU Processor',            categoryId: '164',    titleRule: 'cpu',                    maxPrice: 100, conditionId: 3000, bestOffer: true },
+      { label: 'Graphics Card',            channel: 'graphics-cards', categoryId: '27386',  titleRule: 'graphics-card',          maxPrice: 300, conditionId: 3000 },
+      { label: 'Power Supply',             channel: 'power-supplies', categoryId: '42017',  titleRule: 'power-supply',           maxPrice: 30,  bestOffer: true },
+      { label: 'SSD',                      channel: 'ssds',           categoryId: '175669', titleRule: 'ssd',                    maxPrice: 31 },
+      { label: 'Motherboard + CPU Bundle', channel: 'motherboards',   categoryId: '131511', titleRule: 'motherboard-cpu-bundle', maxPrice: 100 },
+      { label: 'Motherboard',              channel: 'motherboards',   categoryId: '1244',   titleRule: 'motherboard',            maxPrice: 40,  conditionId: 3000 },
+      { label: 'Desktop RAM',              channel: 'ram',            categoryId: '170083', titleRule: 'desktop-ram',            maxPrice: 55,  conditionId: 3000 },
+      { label: 'Ryzen',                    channel: 'cpus',           categoryId: '164',    titleRule: 'ryzen',                  maxPrice: 30,  conditionId: 3000 },
+      { label: 'CPU Processor',            channel: 'cpus',           categoryId: '164',    titleRule: 'cpu',                    maxPrice: 100, conditionId: 3000, bestOffer: true },
     ],
   },
   {
@@ -81,11 +81,15 @@ const SEARCHES = [
     q: 'desktop pc',
     maxPrice: 105,
     subSearches: [
-      { label: 'Desktop PC', titleRule: 'desktop-pc', maxPrice: 105 },
+      { label: 'Desktop PC', channel: 'desktop-pcs', titleRule: 'desktop-pc', maxPrice: 105 },
     ],
   },
 ];
 const MAX_RESULTS = 200; // must match the limit in buildBrowseSearchParams
+
+// Every alert goes to CHANNEL_ID, and also to its sub-search's `channel`
+// (found by name, or created under this Discord category on startup).
+const DEALS_CATEGORY = 'eBay Deals';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -93,6 +97,64 @@ const seenIds = new Set();    // matched listings already alerted/seeded
 const seenRawIds = new Set(); // every listing returned, for missed-listing detection
 const client  = new Client({ intents: [GatewayIntentBits.Guilds] });
 const sleep   = ms => new Promise(r => setTimeout(r, ms));
+
+// ─── DISCORD CHANNELS ────────────────────────────────────────────────────────
+let mainChannel = null;               // CHANNEL_ID: receives every alert
+const categoryChannels = new Map();   // channel name -> channel, per category
+
+async function getMainChannel() {
+  if (mainChannel) return mainChannel;
+  try {
+    mainChannel = await client.channels.fetch(CHANNEL_ID);
+  } catch (err) {
+    console.error('❌ Cannot fetch Discord channel:', err.message);
+  }
+  return mainChannel;
+}
+
+// Find each category channel by name in the main channel's server, creating
+// any that are missing (needs the bot to have Manage Channels). Failures are
+// logged and alerts keep going to the main channel only.
+async function setupCategoryChannels() {
+  const names = categoryChannelNames(SEARCHES);
+  const main = await getMainChannel();
+  const guild = main && 'guild' in main ? main.guild : null;
+  if (!names.length || !guild) return;
+
+  try {
+    const all = await guild.channels.fetch();
+    const isNamed = (c, name, type) => c && c.type === type && c.name === name;
+
+    let category = all.find(c => isNamed(c, DEALS_CATEGORY, ChannelType.GuildCategory)) || null;
+    const missing = names.filter(n => !all.some(c => isNamed(c, n, ChannelType.GuildText)));
+    if (!category && missing.length) {
+      category = await guild.channels.create({ name: DEALS_CATEGORY, type: ChannelType.GuildCategory });
+      console.log(`📁 Created category "${DEALS_CATEGORY}"`);
+    }
+
+    for (const name of names) {
+      let channel = all.find(c => isNamed(c, name, ChannelType.GuildText));
+      if (channel) {
+        console.log(`   #${name}: found`);
+      } else {
+        channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category?.id });
+        console.log(`   #${name}: created`);
+      }
+      categoryChannels.set(name, channel);
+    }
+  } catch (err) {
+    console.warn(`⚠️  Category channels unavailable (${err.message}). Give the bot the "Manage Channels" permission to create them. Alerts will go to the main channel only for now.`);
+  }
+}
+
+async function sendTo(channel, payload) {
+  if (!channel || !('send' in channel)) return;
+  try {
+    await channel.send(payload);
+  } catch (err) {
+    console.error(`❌ Discord send to #${channel.name || channel.id} failed:`, err.message);
+  }
+}
 
 // ─── OAUTH (cached app token) ────────────────────────────────────────────────
 let cachedToken = null;
@@ -210,13 +272,8 @@ async function checkSearch(s) {
 
 async function pollSearch(s) {
   console.log(`🔄 Checking ${s.label}... ${new Date().toLocaleTimeString('en-GB')}`);
-  let channel;
-  try {
-    channel = await client.channels.fetch(CHANNEL_ID);
-  } catch (err) {
-    console.error('❌ Cannot fetch Discord channel:', err.message);
-    return;
-  }
+  const channel = await getMainChannel();
+  if (!channel) return;
 
   {
     const result = await searchEbay(s);
@@ -267,13 +324,9 @@ async function pollSearch(s) {
         );
       }
 
-      try {
-        if (channel && 'send' in channel) {
-          await channel.send({ embeds: [embed], components: [buttons] });
-        }
-      } catch (err) {
-        console.error('❌ Discord send failed:', err.message);
-      }
+      const payload = { embeds: [embed], components: [buttons] };
+      await sendTo(channel, payload);
+      await sendTo(categoryChannels.get(item.match.channel), payload);
     }
     if (fresh.length) console.log(`   ${s.label}: ${fresh.length} new`);
   }
@@ -292,6 +345,9 @@ client.once('clientReady', async () => {
     console.error('   Check EBAY_CLIENT_ID / EBAY_CLIENT_SECRET match the EBAY_ENV (sandbox vs production).');
     process.exit(1);
   }
+
+  console.log('📺 Setting up category channels...');
+  await setupCategoryChannels();
 
   // Seed existing listings silently so you only get alerts for NEW ones
   for (const s of SEARCHES) {

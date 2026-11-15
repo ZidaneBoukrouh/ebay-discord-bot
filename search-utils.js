@@ -66,6 +66,17 @@ function matchSubSearch(search, item) {
   return (search.subSearches || []).find(sub => passesSubSearch(sub, item)) || null;
 }
 
+// Unique per-category Discord channel names across all sub-searches, in order.
+function categoryChannelNames(searches) {
+  const names = [];
+  for (const s of searches || []) {
+    for (const sub of s.subSearches || []) {
+      if (sub.channel && !names.includes(sub.channel)) names.push(sub.channel);
+    }
+  }
+  return names;
+}
+
 // Item price from a Browse API summary. Auctions usually carry no `price`,
 // only `currentBidPrice` (the starting bid until someone bids).
 function itemPriceValue(summary) {
@@ -105,6 +116,6 @@ function quickBuyUrl(legacyItemId, itemId) {
 }
 
 module.exports = {
-  buildBrowseSearchParams, isRelevantTitle, matchSubSearch,
+  buildBrowseSearchParams, isRelevantTitle, matchSubSearch, categoryChannelNames,
   cheapestShippingCost, formatTotalPrice, quickBuyUrl, itemPriceValue, itemBidValue,
 };

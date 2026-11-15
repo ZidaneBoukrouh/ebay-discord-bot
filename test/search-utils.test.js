@@ -134,3 +134,21 @@ test('auction listings match sub-searches like fixed-price ones', () => {
   };
   assert.equal(matchSubSearch(search, auction).label, 'Graphics Card');
 });
+
+test('categoryChannelNames: unique names in order, skipping sub-searches without a channel', () => {
+  const { categoryChannelNames } = require('../search-utils');
+  const searches = [
+    { subSearches: [
+      { label: 'Graphics Card', channel: 'graphics-cards' },
+      { label: 'Bundle', channel: 'motherboards' },
+      { label: 'Motherboard', channel: 'motherboards' },
+      { label: 'Ryzen', channel: 'cpus' },
+      { label: 'CPU', channel: 'cpus' },
+      { label: 'No channel' },
+    ] },
+    { subSearches: [{ label: 'Desktop PC', channel: 'desktop-pcs' }] },
+    { label: 'no sub-searches' },
+  ];
+  assert.deepEqual(categoryChannelNames(searches), ['graphics-cards', 'motherboards', 'cpus', 'desktop-pcs']);
+  assert.deepEqual(categoryChannelNames([]), []);
+});
